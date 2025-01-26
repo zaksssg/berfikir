@@ -8,7 +8,7 @@ from telethon import TelegramClient, events, sync
 from telethon.errors import (
     FloodWaitError, 
     UserDeactivatedBanError, 
-    UserSuspendedError,
+    UserDeactivatedError,
     SessionPasswordNeededError
 )
 from telethon.tl.functions.channels import GetParticipantsRequest
