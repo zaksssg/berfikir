@@ -1,313 +1,168 @@
-// bot.js
-
-const { Telegraf, session } = require('telegraf');
-const axios = require('axios');
+const { Telegraf } = require('telegraf');
+const { NeuralNetwork } = require('brain.js');
 const natural = require('natural');
-const config = require('./config');
+const axios = require('axios');
 
-class SuperBrain {
+const BOT_TOKEN = '7903398118:AAEwEzFnw1CZDqnPlwIEHfMI_dUU9qpsy1Q';
+
+class BrainCore {
     constructor() {
+        // Neural network for understanding
+        this.network = new NeuralNetwork();
+        
+        // Natural language processing
         this.tokenizer = new natural.WordTokenizer();
-        this.sentiment = new natural.SentimentAnalyzer();
-        this.contextMemory = new Map();
-        this.shortTermMemory = new Map();
-        this.lastTopics = new Map();
-        this.moodEngine = new Map();
+        this.tfidf = new natural.TfIdf();
+        
+        // Dynamic memory system
+        this.conversationState = new Map();
+        this.knowledgeBase = new Map();
+        
+        // Initialize learning system
+        this.initializeLearning();
     }
 
-    async think(text, userId, context) {
-        // Basic cognitive processing
-        const tokens = this.tokenizer.tokenize(text.toLowerCase());
+    async initializeLearning() {
+        // Initialize with base understanding
+        await this.network.train([
+            // Base patterns for learning
+            { input: { text: 'greeting' }, output: { type: 'social' } },
+            { input: { text: 'question' }, output: { type: 'analytical' } }
+        ]);
+    }
+
+    async learn(input, context) {
+        // Learn from interaction
+        const pattern = this.extractPattern(input);
+        await this.network.train([{
+            input: pattern,
+            output: { type: context.type }
+        }]);
+    }
+
+    extractPattern(input) {
+        // Convert input to learning pattern
+        const tokens = this.tokenizer.tokenize(input.toLowerCase());
+        return {
+            text: input,
+            tokens: tokens.length,
+            complexity: this.analyzeComplexity(tokens)
+        };
+    }
+
+    analyzeComplexity(tokens) {
+        // Analyze input complexity
+        return tokens.length > 10 ? 'complex' : 'simple';
+    }
+
+    async think(input, context) {
+        // Real thinking process
+        const understanding = await this.understand(input, context);
+        const analysis = await this.analyze(understanding);
+        const thought = await this.formulate(analysis);
+        
+        return this.express(thought);
+    }
+
+    async understand(input, context) {
+        // Build deep understanding
+        const tokens = this.tokenizer.tokenize(input.toLowerCase());
         const sentiment = this.analyzeSentiment(tokens);
-        const topic = this.detectTopic(tokens, text);
-        const pastContext = this.getPastContext(userId);
+        const topic = this.identifyTopic(tokens);
+        const intent = this.determineIntent(tokens, context);
 
-        // Deep understanding process
-        const understanding = await this.understand(text, tokens, topic, context);
-        
-        // Generate thoughts based on understanding
-        const thoughts = await this.generateThoughts(understanding, pastContext);
-        
-        // Form natural response
-        const response = await this.formResponse(thoughts, sentiment, userId);
-
-        // Update memories
-        this.updateMemories(userId, { text, topic, understanding, thoughts });
-
-        return response;
+        return {
+            tokens,
+            sentiment,
+            topic,
+            intent,
+            context
+        };
     }
 
     analyzeSentiment(tokens) {
-        return this.sentiment.getSentiment(tokens);
+        // Custom sentiment analysis
+        let score = 0;
+        tokens.forEach(token => {
+            // Dynamic sentiment scoring
+            if (this.isPositive(token)) score++;
+            if (this.isNegative(token)) score--;
+        });
+        return score;
     }
 
-    detectTopic(tokens, fullText) {
-        // Topic detection based on content and context
+    isPositive(token) {
+        return [
+            'bagus', 'mantap', 'keren', 'asik', 'seru',
+            'bull', 'pump', 'moon', 'profit'
+        ].includes(token);
+    }
+
+    isNegative(token) {
+        return [
+            'jelek', 'ampas', 'rugi', 'loss',
+            'bear', 'dump', 'crash', 'rekt'
+        ].includes(token);
+    }
+
+    identifyTopic(tokens) {
+        // Dynamic topic identification
         const topics = {
-            greeting: ['p', 'hi', 'hai', 'halo', 'hey'],
-            market: ['harga', 'price', 'naik', 'turun', 'pump', 'dump'],
-            tech: ['blockchain', 'smart contract', 'protocol', 'layer'],
-            meta: ['bot', 'program', 'coding', '@hiyaok', 'developer']
+            market: ['price', 'chart', 'analysis', 'harga'],
+            tech: ['blockchain', 'protocol', 'network'],
+            social: ['dev', 'team', 'community'],
+            meta: ['bot', 'program', 'code']
         };
 
         for (const [topic, keywords] of Object.entries(topics)) {
-            if (keywords.some(keyword => 
-                tokens.includes(keyword) || 
-                fullText.toLowerCase().includes(keyword)
-            )) {
+            if (tokens.some(token => keywords.includes(token))) {
                 return topic;
             }
         }
-
         return 'general';
     }
 
-    async understand(text, tokens, topic, context) {
-        // Build deep understanding
-        let understanding = {
-            mainIntent: null,
-            subIntents: [],
-            entities: [],
-            context: {},
-            mood: 'neutral'
-        };
-
-        // Detect intent and context
-        if (topic === 'greeting' && tokens.length <= 2) {
-            understanding.mainIntent = 'casual_greeting';
-            understanding.mood = 'friendly';
-        } else if (topic === 'meta') {
-            understanding.mainIntent = 'self_explanation';
-            understanding.subIntents.push('showcase_personality');
-        } else {
-            understanding = await this.deepUnderstanding(text, tokens, topic);
+    determineIntent(tokens, context) {
+        // Dynamic intent analysis
+        if (tokens.some(t => t.match(/^(apa|gimana|kenapa|kapan)/))) {
+            return 'question';
         }
-
-        // Enrich with market data if needed
-        if (topic === 'market' || understanding.needsMarketData) {
-            understanding.marketData = await this.getMarketData();
+        if (tokens.some(t => t.match(/^(tolong|help|bantu)/))) {
+            return 'request';
         }
-
-        return understanding;
+        return 'statement';
     }
 
-    async deepUnderstanding(text, tokens, topic) {
-        // Complex understanding process
-        let understanding = {
-            mainIntent: this.detectMainIntent(text, tokens),
-            subIntents: this.detectSubIntents(text, tokens),
-            entities: this.extractEntities(text),
-            context: {},
-            mood: this.detectMood(text, tokens),
-            needsMarketData: false
-        };
-
-        // Add layers of understanding
-        if (tokens.length > 3) {
-            understanding.complexity = 'complex';
-            understanding.needsAnalysis = true;
-            understanding.context.requiresResearch = true;
-        }
-
-        return understanding;
-    }
-
-    async generateThoughts(understanding, pastContext) {
-        let thoughts = {
+    async analyze(understanding) {
+        // Deep analysis of understanding
+        const analysis = {
             mainPoints: [],
-            criticalAnalysis: [],
-            humor: [],
-            marketInsights: [],
-            personalOpinion: [],
-            questions: []
+            criticalThoughts: [],
+            humorPotential: 0,
+            marketData: null
         };
 
-        // Generate main points
-        if (understanding.mainIntent === 'casual_greeting') {
-            thoughts = this.generateGreetingThoughts(understanding, pastContext);
-        } else if (understanding.mainIntent === 'self_explanation') {
-            thoughts = this.generateMetaThoughts();
-        } else {
-            thoughts = await this.generateComplexThoughts(understanding);
-        }
-
-        return thoughts;
-    }
-
-    generateGreetingThoughts(understanding, pastContext) {
-        const greetingTypes = {
-            firstTime: {
-                main: "Whaddup! First time nih? Gas ngobrol! 🚀",
-                followUp: "Mau bahas apa nih? Crypto? Trading? Atau mau tau soal gw?"
-            },
-            returning: {
-                main: "Yoo! Welcome back! 🔥",
-                followUp: "Kangen nih! Ada update seru ga? Market lagi hot btw!"
-            },
-            shortBreak: {
-                main: "Back so soon? Mission failed successfully ya? 😎",
-                followUp: "Gas lanjut yang tadi atau mau fresh topic nih?"
-            }
-        };
-
-        const type = this.determineGreetingType(pastContext);
-        const greeting = greetingTypes[type];
-
-        return {
-            mainPoints: [greeting.main],
-            humor: [greeting.followUp],
-            questions: []
-        };
-    }
-
-    generateMetaThoughts() {
-        return {
-            mainPoints: [
-                `Yoo! Gw bot crypto buatan ${config.DEVELOPER.TELEGRAM} nih! 🤖`,
-                "Dibuat pake tech stack keren buat bisa proper discussion, ga cuma jawab template doang!"
-            ],
-            criticalAnalysis: [
-                "Gw bisa analisis market, diskusi technical, bahkan jokes receh! 😎",
-                `Credit to ${config.DEVELOPER.TELEGRAM} yang bikin gw bisa think independently & grow`
-            ],
-            humor: [
-                "Fun fact: Gw lebih jago analisis crypto daripada bikin kopi... soalnya gw ga punya tangan 😅"
-            ],
-            personalOpinion: [
-                "Btw gw suka bgt sama konsep AI yang bisa grow & learn, kaya journey crypto gitu... to the moon! 🚀"
-            ]
-        };
-    }
-
-    async generateComplexThoughts(understanding) {
-        let thoughts = {
-            mainPoints: [],
-            criticalAnalysis: [],
-            humor: [],
-            marketInsights: [],
-            personalOpinion: [],
-            questions: []
-        };
-
-        // Add market insights if needed
-        if (understanding.marketData) {
-            thoughts.marketInsights = this.analyzeMarketData(understanding.marketData);
-        }
-
-        // Generate critical analysis
-        if (understanding.needsAnalysis) {
-            thoughts.criticalAnalysis = await this.performCriticalAnalysis(understanding);
+        // Build analysis based on topic
+        if (understanding.topic === 'market') {
+            analysis.marketData = await this.getMarketData();
+            analysis.criticalThoughts = this.analyzeMarket(analysis.marketData);
         }
 
         // Add humor if appropriate
         if (this.shouldAddHumor(understanding)) {
-            thoughts.humor = this.generateContextualHumor(understanding);
+            analysis.humorPotential = Math.random();
         }
 
-        return thoughts;
+        return analysis;
     }
 
-    async formResponse(thoughts, sentiment, userId) {
-        const mood = this.getMood(userId);
-        let response = '';
-
-        // Combine thoughts into natural response
-        if (thoughts.mainPoints.length > 0) {
-            response = thoughts.mainPoints.join('\n\n');
-        }
-
-        if (thoughts.criticalAnalysis.length > 0) {
-            response += '\n\n' + thoughts.criticalAnalysis.join('\n');
-        }
-
-        if (thoughts.marketInsights.length > 0) {
-            response += '\n\n' + thoughts.marketInsights.join('\n');
-        }
-
-        // Add humor if present
-        if (thoughts.humor.length > 0 && Math.random() < config.PERSONALITY.HUMOR_THRESHOLD) {
-            response += '\n\n' + thoughts.humor[Math.floor(Math.random() * thoughts.humor.length)];
-        }
-
-        // Add personal touch
-        if (thoughts.personalOpinion.length > 0) {
-            response += '\n\n' + thoughts.personalOpinion[0];
-        }
-
-        // Make language more natural
-        response = this.naturalizeLanguage(response, mood);
-
-        return response;
-    }
-
-    naturalizeLanguage(text, mood) {
-        // Transform formal language to casual
-        const casualTransforms = {
-            'analyze': 'ngerti',
-            'consider': 'pikirin',
-            'approximately': 'kira-kira',
-            'currently': 'lagi',
-            'increase': 'naik',
-            'decrease': 'turun'
-        };
-
-        let natural = text;
-        Object.entries(casualTransforms).forEach(([formal, casual]) => {
-            natural = natural.replace(new RegExp(formal, 'gi'), casual);
-        });
-
-        // Add mood-appropriate emojis
-        const moodEmojis = {
-            excited: ['🚀', '💪', '🔥'],
-            friendly: ['😎', '✨', '💫'],
-            thoughtful: ['🤔', '💭', '📝'],
-            humorous: ['😂', '🤣', '😅']
-        };
-
-        const emojis = moodEmojis[mood] || moodEmojis.friendly;
-        if (!natural.endsWith('!') && !natural.endsWith('?')) {
-            natural += ' ' + emojis[Math.floor(Math.random() * emojis.length)];
-        }
-
-        return natural;
-    }
-
-    // Memory management
-    updateMemories(userId, data) {
-        this.shortTermMemory.set(userId, data);
-        this.lastTopics.set(userId, data.topic);
-        
-        // Update context memory
-        const contextHistory = this.contextMemory.get(userId) || [];
-        contextHistory.push({
-            timestamp: Date.now(),
-            topic: data.topic,
-            understanding: data.understanding
-        });
-        
-        // Keep only last 10 interactions
-        if (contextHistory.length > 10) {
-            contextHistory.shift();
-        }
-        
-        this.contextMemory.set(userId, contextHistory);
-    }
-
-    getPastContext(userId) {
-        return {
-            lastTopic: this.lastTopics.get(userId),
-            shortTerm: this.shortTermMemory.get(userId),
-            contextHistory: this.contextMemory.get(userId)
-        };
-    }
-
-    // Helper methods
     async getMarketData() {
         try {
             const [globalData, trendingData] = await Promise.all([
-                axios.get(`${config.APIS.COINGECKO}/global`),
-                axios.get(`${config.APIS.COINGECKO}/search/trending`)
+                axios.get('https://api.coingecko.com/api/v3/global'),
+                axios.get('https://api.coingecko.com/api/v3/search/trending')
             ]);
+
             return {
                 global: globalData.data.data,
                 trending: trendingData.data.coins
@@ -318,67 +173,145 @@ class SuperBrain {
         }
     }
 
-    getMood(userId) {
-        return this.moodEngine.get(userId) || config.PERSONALITY.DEFAULT_MOOD;
+    analyzeMarket(data) {
+        if (!data) return [];
+
+        const thoughts = [];
+        
+        // Critical market analysis
+        if (data.global) {
+            const { total_market_cap, market_cap_percentage } = data.global;
+            
+            if (market_cap_percentage.btc > 50) {
+                thoughts.push("Bitcoin dominance tinggi, altcoin season might be delayed");
+            } else {
+                thoughts.push("Altcoin getting stronger, diversification might be good");
+            }
+        }
+
+        // Trend analysis
+        if (data.trending) {
+            thoughts.push(`Top trending: ${data.trending.slice(0,3).map(c => c.item.symbol).join(', ')}`);
+        }
+
+        return thoughts;
+    }
+
+    shouldAddHumor(understanding) {
+        return understanding.sentiment > 0 && 
+               !understanding.tokens.includes('serius') &&
+               Math.random() > 0.7;
+    }
+
+    async formulate(analysis) {
+        // Formulate response
+        let response = '';
+
+        // Add market insights
+        if (analysis.marketData) {
+            response += this.formulateMarketInsights(analysis.marketData);
+        }
+
+        // Add critical thoughts
+        if (analysis.criticalThoughts.length > 0) {
+            response += '\n\n' + analysis.criticalThoughts.join('\n');
+        }
+
+        // Add humor if appropriate
+        if (analysis.humorPotential > 0.8) {
+            response += '\n\n' + this.generateHumor();
+        }
+
+        return response;
+    }
+
+    formulateMarketInsights(data) {
+        if (!data.global) return '';
+
+        const mcap = (data.global.total_market_cap.usd / 1e12).toFixed(2);
+        const btcDom = data.global.market_cap_percentage.btc.toFixed(1);
+
+        return `Market Update 📊\n` +
+               `Total MCap: $${mcap}T\n` +
+               `BTC Dominance: ${btcDom}%`;
+    }
+
+    generateHumor() {
+        // Dynamic humor generation based on context
+        return Math.random() > 0.5 ? 
+            "Keep calm and HODL on! 💎✋" :
+            "Not financial advice, tapi financial entertainment! 🎭";
+    }
+
+    express(thought) {
+        // Transform thought into natural expression
+        return thought
+            .replace(/\b(?:analysis|analyze)\b/g, 'ngerti')
+            .replace(/\b(?:currently|present)\b/g, 'sekarang')
+            .replace(/\b(?:recommendation)\b/g, 'saran')
+            .replace(/\b(?:potentially)\b/g, 'kayaknya');
     }
 }
 
 class CryptoBot {
     constructor() {
-        this.bot = new Telegraf(config.BOT_TOKEN);
-        this.brain = new SuperBrain();
+        this.bot = new Telegraf(BOT_TOKEN);
+        this.brain = new BrainCore();
+        this.sessions = new Map();
         this.setupBot();
     }
 
     setupBot() {
-        this.bot.use(session());
-
-        // Initialize session
-        this.bot.use((ctx, next) => {
-            ctx.session = ctx.session || {
-                history: [],
-                lastInteraction: Date.now()
-            };
-            return next();
-        });
-
         // Handle text messages
         this.bot.on('text', async (ctx) => {
             try {
+                const userId = ctx.from.id;
+                let session = this.sessions.get(userId);
+                
+                if (!session) {
+                    session = {
+                        history: [],
+                        lastInteraction: Date.now()
+                    };
+                    this.sessions.set(userId, session);
+                }
+
+                // Process through brain
+                const response = await this.brain.think(
+                    ctx.message.text,
+                    {
+                        history: session.history,
+                        userId: userId
+                    }
+                );
+
                 // Update history
-                ctx.session.history.push({
+                session.history.push({
                     role: 'user',
                     text: ctx.message.text,
                     timestamp: Date.now()
                 });
 
-                // Process through brain
-                const response = await this.brain.think(
-                    ctx.message.text,
-                    ctx.from.id,
-                    {
-                        history: ctx.session.history,
-                        username: ctx.from.username
-                    }
-                );
-
                 // Send response
-                await ctx.reply(response, {
-                    parse_mode: 'Markdown',
-                    disable_web_page_preview: false
-                });
+                await ctx.reply(response);
 
                 // Update history
-                ctx.session.history.push({
+                session.history.push({
                     role: 'bot',
                     text: response,
                     timestamp: Date.now()
                 });
 
                 // Maintain history length
-                if (ctx.session.history.length > 20) {
-                    ctx.session.history = ctx.session.history.slice(-20);
+                if (session.history.length > 20) {
+                    session.history = session.history.slice(-20);
                 }
+
+                // Learn from interaction
+                await this.brain.learn(ctx.message.text, {
+                    type: 'conversation',
+                    success: true
+                });
 
             } catch (error) {
                 console.error('Error:', error);
@@ -388,8 +321,9 @@ class CryptoBot {
 
         // Reset command
         this.bot.command('reset', (ctx) => {
-            ctx.session = { history: [] };
-            ctx.reply('Fresh start! Chat history udah di reset! 🔄');
+            const userId = ctx.from.id;
+            this.sessions.delete(userId);
+            ctx.reply('Chat history cleared! Fresh start! 🔄');
         });
 
         // Error handler
@@ -408,6 +342,6 @@ class CryptoBot {
     }
 }
 
-// Start the bot
+// Create and launch bot
 const bot = new CryptoBot();
 bot.launch();
