@@ -2,183 +2,256 @@ const { Telegraf, Markup } = require('telegraf')
 const sqlite3 = require('sqlite3').verbose()
 const axios = require('axios')
 
-// Konfigurasi Hardcoded
-const BOT_TOKEN = '7903398118:AAEwEzFnw1CZDqnPlwIEHfMI_dUU9qpsy1Q'
+// ========== KONFIGURASI ==========
+const BOT_TOKEN = '7903398118:AAE0MXpz-gj3h3OvMozmg6oRxw-0BWeBmVY'
 const ADMIN_ID = 5988451717 // Ganti dengan ID admin
-const BOT_CREATOR = '@hiyaok'
-const DB_FILE = 'bot_database.db'
+const CREATOR = '@hiyaok'
+const DB_FILE = 'smart_bot.db'
 
-// Inisialisasi Database
+// ========== INISIALISASI ==========
 const db = new sqlite3.Database(DB_FILE)
+const bot = new Telegraf(BOT_TOKEN)
+
+// ========== SETUP DATABASE ==========
 db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS group_messages (
+  db.run(`CREATE TABLE IF NOT EXISTS group_data (
     id INTEGER PRIMARY KEY,
     chat_id INTEGER,
-    user_id INTEGER,
     message TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   )`)
-  
+
   db.run(`CREATE TABLE IF NOT EXISTS sessions (
     user_id INTEGER PRIMARY KEY,
     context TEXT,
-    last_interaction DATETIME DEFAULT CURRENT_TIMESTAMP
+    history TEXT,
+    last_active DATETIME
   )`)
 })
 
-// Inisialisasi Bot
-const bot = new Telegraf(BOT_TOKEN)
+// ========== SISTEM KECERDASAN ==========
+class Brain {
+  constructor() {
+    this.cryptoKeywords = new Set([
+      'bitcoin', 'crypto', 'blockchain', 'eth',
+      'nft', 'web3', 'altcoin', 'defi', 'token'
+    ])
+  }
 
-// Sistem Memori Sesi
-const userSessions = new Map()
+  async processInput(text, userId) {
+    const context = await this.getContext(userId)
+    const isCrypto = this.detectCrypto(text)
+    
+    if(isCrypto) {
+      return this.handleCrypto(text, context)
+    }
+    return this.handleGeneral(text, context)
+  }
 
-// Kamus Bahasa Gaul
-const slangDB = {
-  'p': 'p',
-  'bro': '🗿 Bro! Ada apa?',
-  'mantap': '🔥 Mantul banget tuh!',
-  'wkwk': '😂 Wkwkwk ngakak banget sih!',
-  'crypto': '💸 Mau diskusi crypto ya? Gas!'
+  async getContext(userId) {
+    return new Promise((resolve) => {
+      db.get(
+        'SELECT context, history FROM sessions WHERE user_id = ?',
+        [userId],
+        (err, row) => resolve(row || { history: [] })
+      )
+    })
+  }
+
+  detectCrypto(text) {
+    const words = text.toLowerCase().split(/[\s\W]+/)
+    return words.some(word => this.cryptoKeywords.has(word))
+  }
+
+  async handleCrypto(text, context) {
+    const coin = this.extractCoin(text)
+    if(coin) {
+      try {
+        const data = await this.getCryptoData(coin)
+        return this.formatCryptoResponse(data)
+      } catch {
+        return this.createResponse(
+          '⚠️ Lagi ada masalah nih sama data cryptonya, coba lagi ya?',
+          'confused'
+        )
+      }
+    }
+    return this.createResponse(
+      '💡 Mau bahas crypto apa nih? Bisa tanya harga, teknologi, atau prediksi!',
+      'crypto'
+    )
+  }
+
+  async handleGeneral(text, context) {
+    // Cari di database grup
+    const groupAnswer = await this.findGroupAnswer(text)
+    if(groupAnswer) {
+      return this.createResponse(
+        `🗣️ Dari obrolan grup:\n"${groupAnswer}"`,
+        'group'
+      )
+    }
+
+    // Cari di sumber eksternal
+    const webInfo = await this.getWebInfo(text)
+    if(webInfo) {
+      return this.createResponse(
+        `${webInfo.text}\n\n🔗 Sumber: ${webInfo.source}`,
+        'web'
+      )
+    }
+
+    // Jawaban default
+    return this.createResponse(
+      this.generateCasualResponse(),
+      'casual'
+    )
+  }
+
+  async getCryptoData(coin) {
+    const response = await axios.get(
+      `https://api.coingecko.com/api/v3/coins/${coin}`
+    )
+    return {
+      name: response.data.name,
+      symbol: response.data.symbol.toUpperCase(),
+      price: response.data.market_data.current_price.usd,
+      source: 'https://www.coingecko.com'
+    }
+  }
+
+  formatCryptoResponse(data) {
+    return {
+      text: `💰 *${data.name} (${data.symbol})*\n` +
+            `🔼 Harga Terkini: $${data.price}\n` +
+            `🌐 Sumber: ${data.source}`,
+      source: data.source
+    }
+  }
+
+  async findGroupAnswer(query) {
+    return new Promise((resolve) => {
+      db.get(
+        'SELECT message FROM group_data WHERE message LIKE ? ORDER BY timestamp DESC LIMIT 1',
+        [`%${query}%`],
+        (err, row) => resolve(row?.message)
+      )
+    })
+  }
+
+  async getWebInfo(query) {
+    try {
+      const response = await axios.get(
+        `https://id.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=1&format=json`
+      )
+      if(response.data[2][0]) {
+        return {
+          text: `📚 ${response.data[2][0].substring(0, 300)}...`,
+          source: response.data[3][0]
+        }
+      }
+    } catch {
+      return null
+    }
+  }
+
+  generateCasualResponse() {
+    const responses = [
+      '🤔 Hmm... Jadi penasaran nih... Bisa dijelasin lebih detail?',
+      '🔥 Wah topik keren! Tapi gue lebih jago bahas crypto deh~',
+      '😴 Waduh, bahas ini jadi ngantuk... Ada yang mau nanya crypto?',
+      '💡 Btw, lu udah cek harga Bitcoin hari ini? Seru loh pergerakannya!'
+    ]
+    return responses[Math.floor(Math.random() * responses.length)]
+  }
+
+  createResponse(text, mood) {
+    const emojis = {
+      crypto: ['💰', '🔗', '📈'],
+      group: ['🗣️', '👥', '💬'],
+      web: ['🌐', '📚', '🔍'],
+      casual: ['😎', '🤙', '💡'],
+      confused: ['⚠️', '❓', '🤔']
+    }
+    return {
+      text: `${emojis[mood][0]} ${text}`,
+      source: null
+    }
+  }
 }
 
-// Format Teks
-const fmt = {
-  bold: (t) => `*${t}*`,
-  italic: (t) => `_${t}_`,
-  code: (t) => `\`${t}\``
-}
+// ========== INIT BRAIN ==========
+const AI = new Brain()
 
-// Handler Pesan Grup
+// ========== HANDLER PESAN ==========
+// Simpan pesan grup
 bot.on('message', (ctx) => {
-  const { chat, from, text } = ctx.message
-  
-  // Simpan ke database
-  db.run(
-    'INSERT INTO group_messages (chat_id, user_id, message) VALUES (?, ?, ?)',
-    [chat.id, from.id, text]
-  )
-  
-  // Update session
-  updateUserSession(from.id, text)
+  if(ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
+    db.run(
+      'INSERT INTO group_data (chat_id, message) VALUES (?, ?)',
+      [ctx.chat.id, ctx.message.text]
+    )
+  }
 })
 
-// Handler Pesan Private
+// Handle pesan private
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id
-  const userInput = ctx.message.text
-  let response = ''
-  
-  // Cek pertanyaan tentang bot
-  if (/bot|pembuat|creator/i.test(userInput)) {
-    response = `🤖 ${fmt.bold('Aku adalah CryptoBroBot!')}\nDibuat dengan ❤️ oleh ${BOT_CREATOR}`
-  }
-  // Cek crypto
-  else if (/crypto|bitcoin|ethereum/i.test(userInput)) {
-    response = await handleCryptoQuery(userInput)
-  }
-  // Coba cari di database
-  else {
-    response = await generateSmartResponse(userId, userInput)
-  }
-  
-  // Tambahkan tombol feedback
-  const keyboard = Markup.inlineKeyboard([
-    Markup.button.callback('💌 Kasih Feedback', 'send_feedback')
-  ])
-  
-  ctx.replyWithMarkdown(response, keyboard)
-})
+  const text = ctx.message.text
 
-// Handler Feedback
-bot.action('send_feedback', (ctx) => {
-  ctx.answerCbQuery()
-  ctx.reply('👍 Oke bang, feedback lu udah aku terusin ke admin ya!')
+  // Update session
+  db.run(
+    'INSERT OR REPLACE INTO sessions (user_id, history, last_active) VALUES (?, ?, ?)',
+    [userId, text, new Date().toISOString()]
+  )
+
+  // Generate response
+  const response = await AI.processInput(text, userId)
   
-  // Kirim ke admin
-  ctx.telegram.sendMessage(
-    ADMIN_ID,
-    `📣 Feedback dari @${ctx.from.username}:\n"${ctx.match.input}"`
+  // Kirim pesan
+  ctx.replyWithMarkdown(
+    response.text,
+    Markup.inlineKeyboard([
+      Markup.button.callback('💬 Feedback', 'feedback')
+    ])
   )
 })
 
-// Fungsi Khusus Crypto
-async function handleCryptoQuery(query) {
-  try {
-    const coin = getCoinName(query)
-    const price = await getCryptoPrice(coin)
-    return `💰 ${fmt.bold(coin.toUpperCase())}\nHarga: ${fmt.code(`$${price}`)}\nSumber: CoinGecko`
-  } catch {
-    return '📉 Hmm, crypto itu kayaknya lagi error nih. Coba lagi nanti ya?'
-  }
-}
-
-// Pencarian Harga Crypto
-async function getCryptoPrice(coin) {
-  const response = await axios.get(`https://api.coingecko.com/api/v3/simple/price?ids=${coin}&vs_currencies=usd`)
-  return response.data[coin].usd
-}
-
-// Sistem Generasi Jawaban
-async function generateSmartResponse(userId, input) {
-  // Cek bahasa gaul
-  const slangResponse = checkSlang(input)
-  if (slangResponse) return slangResponse
+// ========== FITUR TAMBAHAN ==========
+// Handler feedback
+bot.action('feedback', (ctx) => {
+  ctx.answerCbQuery()
+  ctx.reply('📩 Makasih masukannya! Udah gue terusin ke bos besar nih~')
   
-  // Cari di database
-  const similar = await findSimilarMessages(input)
-  if (similar) return `🗣️ Ini info dari obrolan sebelumnya:\n${similar}`
-  
-  // Jawaban default
-  return generateCasualResponse()
-}
-
-// Cek Kamus Gaul
-function checkSlang(input) {
-  const words = input.toLowerCase().split(' ')
-  for (const word of words) {
-    if (slangDB[word]) return slangDB[word]
-  }
-  return null
-}
-
-// Pencarian Pesan Serupa
-function findSimilarMessages(query) {
-  return new Promise((resolve, reject) => {
-    db.get(
-      'SELECT message FROM group_messages WHERE message LIKE ? ORDER BY timestamp DESC LIMIT 1',
-      [`%${query}%`],
-      (err, row) => resolve(row?.message || null)
-    )
-  })
-}
-
-// Update Sesi Pengguna
-function updateUserSession(userId, message) {
-  const session = userSessions.get(userId) || { history: [] }
-  session.history.push(message)
-  session.lastActive = Date.now()
-  userSessions.set(userId, session)
-}
-
-// Generate Jawaban Santai
-function generateCasualResponse() {
-  const responses = [
-    '🤔 Hmm... Jadi penasaran nih...',
-    '🔥 Wah topik keren nih! Tapi gue lagi laper sih...',
-    '📌 Btw, lu udah cek harga crypto hari ini?',
-    '💡 Nemu meme keren nih kemarin! Mau liat?',
-    '😴 Waduh, ngomongin ini jadi ngantuk deh...'
-  ]
-  return responses[Math.floor(Math.random() * responses.length)]
-}
-
-// Command Reset Sesi
-bot.command('reset', (ctx) => {
-  userSessions.delete(ctx.from.id)
-  ctx.reply('🔄 Oke bang, obrolan kita mulai dari awal ya!')
+  ctx.telegram.sendMessage(
+    ADMIN_ID,
+    `📢 Feedback dari @${ctx.from.username}:\n"${ctx.message.text}"`
+  )
 })
 
-// Jalankan Bot
+// Handler info bot
+bot.hears(/bot|pembuat|creator/i, (ctx) => {
+  ctx.replyWithMarkdown(
+    `🤖 *ID Card*\n` +
+    `Nama: CryptoMasterBot\n` +
+    `Pencipta: ${CREATOR}\n` +
+    `Spesialisasi: Crypto & Ngobrol Santai\n` +
+    `Motto: "Ga perlu serius mulu, crypto bisa fun kok!"`
+  )
+})
+
+// Command reset
+bot.command('reset', (ctx) => {
+  db.run('DELETE FROM sessions WHERE user_id = ?', [ctx.from.id])
+  ctx.replyWithMarkdown(
+    '🔄 *Sessi direset!* Yuk mulai obrolan baru~',
+    Markup.removeKeyboard()
+  )
+})
+
+// ========== START BOT ==========
 bot.launch().then(() => {
-  console.log('🚀 Bot berhasil dijalankan!')
+  console.log('🤖 Bot berjalan dengan kecerdasan buatan!')
+}).catch(err => {
+  console.error('❌ Gagal memulai:', err)
 })
