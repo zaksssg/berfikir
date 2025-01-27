@@ -1,257 +1,383 @@
-const { Telegraf, Markup } = require('telegraf')
+// Advanced AI Telegram Bot with Natural Language Processing
+const { Telegraf } = require('telegraf')
 const sqlite3 = require('sqlite3').verbose()
 const axios = require('axios')
 
-// ========== KONFIGURASI ==========
+// Core Configuration
 const BOT_TOKEN = '7903398118:AAE0MXpz-gj3h3OvMozmg6oRxw-0BWeBmVY'
-const ADMIN_ID = 5988451717 // Ganti dengan ID admin
+const ADMIN_ID = 5988451717
 const CREATOR = '@hiyaok'
-const DB_FILE = 'smart_bot.db'
+const DB_FILE = 'sophisticated_bot.db'
 
-// ========== INISIALISASI ==========
+// Initialize Database
 const db = new sqlite3.Database(DB_FILE)
-const bot = new Telegraf(BOT_TOKEN)
 
-// ========== SETUP DATABASE ==========
+// Database Schema Setup
 db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS group_data (
-    id INTEGER PRIMARY KEY,
-    chat_id INTEGER,
-    message TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  // Neural Network - For deep learning and pattern recognition
+  db.run(`CREATE TABLE IF NOT EXISTS neural_network (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    input_pattern TEXT,
+    context_vector TEXT,
+    response_pattern TEXT,
+    effectiveness_score REAL DEFAULT 0,
+    usage_count INTEGER DEFAULT 0,
+    last_used DATETIME
   )`)
 
-  db.run(`CREATE TABLE IF NOT EXISTS sessions (
-    user_id INTEGER PRIMARY KEY,
-    context TEXT,
-    history TEXT,
-    last_active DATETIME
+  // Cognitive Memory - For conversation context and state
+  db.run(`CREATE TABLE IF NOT EXISTS cognitive_memory (
+    chat_id INTEGER,
+    user_id INTEGER,
+    conversation_state TEXT,
+    emotional_context TEXT,
+    topic_history TEXT,
+    interaction_pattern TEXT,
+    last_interaction DATETIME,
+    PRIMARY KEY (chat_id, user_id)
+  )`)
+
+  // Knowledge Base - For storing learned information
+  db.run(`CREATE TABLE IF NOT EXISTS knowledge_base (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT,
+    subtopic TEXT,
+    information TEXT,
+    sources TEXT,
+    confidence_score REAL,
+    last_verified DATETIME
+  )`)
+
+  // Language Understanding - For natural language patterns
+  db.run(`CREATE TABLE IF NOT EXISTS language_understanding (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_type TEXT,
+    pattern_data TEXT,
+    sentiment_score REAL,
+    context_usage TEXT
   )`)
 })
 
-// ========== SISTEM KECERDASAN ==========
-class Brain {
+// Sophisticated AI Core
+class SophisticatedAI {
   constructor() {
-    this.cryptoKeywords = new Set([
-      'bitcoin', 'crypto', 'blockchain', 'eth',
-      'nft', 'web3', 'altcoin', 'defi', 'token'
-    ])
-  }
-
-  async processInput(text, userId) {
-    const context = await this.getContext(userId)
-    const isCrypto = this.detectCrypto(text)
+    // Initialize core systems
+    this.initializeSystems()
     
-    if(isCrypto) {
-      return this.handleCrypto(text, context)
-    }
-    return this.handleGeneral(text, context)
+    // Load knowledge bases
+    this.loadKnowledgeBases()
+    
+    // Set up response generators
+    this.setupResponseGenerators()
   }
 
-  async getContext(userId) {
-    return new Promise((resolve) => {
-      db.get(
-        'SELECT context, history FROM sessions WHERE user_id = ?',
-        [userId],
-        (err, row) => resolve(row || { history: [] })
-      )
-    })
-  }
+  initializeSystems() {
+    // Language Processing System
+    this.language = {
+      // Core language processing
+      processor: {
+        parseText: (text) => {
+          return {
+            normalized: text.toLowerCase(),
+            tokens: this.tokenizeText(text),
+            patterns: this.extractPatterns(text),
+            sentiment: this.analyzeSentiment(text),
+            complexity: this.assessComplexity(text)
+          }
+        },
 
-  detectCrypto(text) {
-    const words = text.toLowerCase().split(/[\s\W]+/)
-    return words.some(word => this.cryptoKeywords.has(word))
-  }
+        tokenizeText: (text) => {
+          return text.toLowerCase()
+            .replace(/[^\w\s]/g, '')
+            .split(/\s+/)
+            .filter(token => token.length > 0)
+        },
 
-  async handleCrypto(text, context) {
-    const coin = this.extractCoin(text)
-    if(coin) {
-      try {
-        const data = await this.getCryptoData(coin)
-        return this.formatCryptoResponse(data)
-      } catch {
-        return this.createResponse(
-          '⚠️ Lagi ada masalah nih sama data cryptonya, coba lagi ya?',
-          'confused'
-        )
-      }
-    }
-    return this.createResponse(
-      '💡 Mau bahas crypto apa nih? Bisa tanya harga, teknologi, atau prediksi!',
-      'crypto'
-    )
-  }
+        extractPatterns: (text) => {
+          const patterns = {
+            questions: this.detectQuestions(text),
+            statements: this.detectStatements(text),
+            emotions: this.detectEmotions(text),
+            topics: this.detectTopics(text)
+          }
+          return patterns
+        },
 
-  async handleGeneral(text, context) {
-    // Cari di database grup
-    const groupAnswer = await this.findGroupAnswer(text)
-    if(groupAnswer) {
-      return this.createResponse(
-        `🗣️ Dari obrolan grup:\n"${groupAnswer}"`,
-        'group'
-      )
-    }
+        analyzeSentiment: (text) => {
+          let score = 0
+          const positiveWords = new Set([
+            'bagus', 'keren', 'mantap', 'suka', 'asik', 'wow',
+            'bullish', 'moon', 'profit', 'hodl', 'green'
+          ])
+          const negativeWords = new Set([
+            'jelek', 'buruk', 'rugi', 'takut', 'sedih',
+            'bearish', 'dump', 'crash', 'rekt', 'red'
+          ])
 
-    // Cari di sumber eksternal
-    const webInfo = await this.getWebInfo(text)
-    if(webInfo) {
-      return this.createResponse(
-        `${webInfo.text}\n\n🔗 Sumber: ${webInfo.source}`,
-        'web'
-      )
-    }
+          const tokens = this.language.processor.tokenizeText(text)
+          tokens.forEach(token => {
+            if (positiveWords.has(token)) score += 0.2
+            if (negativeWords.has(token)) score -= 0.2
+          })
 
-    // Jawaban default
-    return this.createResponse(
-      this.generateCasualResponse(),
-      'casual'
-    )
-  }
+          return Math.max(-1, Math.min(1, score))
+        }
+      },
 
-  async getCryptoData(coin) {
-    const response = await axios.get(
-      `https://api.coingecko.com/api/v3/coins/${coin}`
-    )
-    return {
-      name: response.data.name,
-      symbol: response.data.symbol.toUpperCase(),
-      price: response.data.market_data.current_price.usd,
-      source: 'https://www.coingecko.com'
-    }
-  }
-
-  formatCryptoResponse(data) {
-    return {
-      text: `💰 *${data.name} (${data.symbol})*\n` +
-            `🔼 Harga Terkini: $${data.price}\n` +
-            `🌐 Sumber: ${data.source}`,
-      source: data.source
-    }
-  }
-
-  async findGroupAnswer(query) {
-    return new Promise((resolve) => {
-      db.get(
-        'SELECT message FROM group_data WHERE message LIKE ? ORDER BY timestamp DESC LIMIT 1',
-        [`%${query}%`],
-        (err, row) => resolve(row?.message)
-      )
-    })
-  }
-
-  async getWebInfo(query) {
-    try {
-      const response = await axios.get(
-        `https://id.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=1&format=json`
-      )
-      if(response.data[2][0]) {
-        return {
-          text: `📚 ${response.data[2][0].substring(0, 300)}...`,
-          source: response.data[3][0]
+      // Understanding generation
+      understanding: {
+        generateUnderstanding: async (text, context) => {
+          const processed = this.language.processor.parseText(text)
+          const topics = await this.detectTopics(processed.tokens)
+          const intent = await this.detectIntent(processed, context)
+          
+          return {
+            processed,
+            topics,
+            intent,
+            requires_data: this.needsExternalData(topics, intent),
+            context_relevance: this.assessContextRelevance(context)
+          }
         }
       }
-    } catch {
+    }
+
+    // Memory Management System
+    this.memory = {
+      shortTerm: {
+        store: async (userId, chatId, data) => {
+          const memory = {
+            state: data.state,
+            context: data.context,
+            emotions: data.emotions,
+            timestamp: Date.now()
+          }
+          await this.storeShortTermMemory(userId, chatId, memory)
+        },
+
+        retrieve: async (userId, chatId) => {
+          return await this.getShortTermMemory(userId, chatId)
+        },
+
+        update: async (userId, chatId, newData) => {
+          const current = await this.getShortTermMemory(userId, chatId)
+          const updated = this.mergeMemoryData(current, newData)
+          await this.updateShortTermMemory(userId, chatId, updated)
+        }
+      },
+
+      longTerm: {
+        learn: async (pattern) => {
+          await this.storeLongTermMemory(pattern)
+        },
+
+        recall: async (context) => {
+          return await this.recallLongTermMemory(context)
+        }
+      }
+    }
+
+    // Knowledge Processing System
+    this.knowledge = {
+      retriever: {
+        getKnowledge: async (topic) => {
+          const knowledge = {
+            internal: await this.getInternalKnowledge(topic),
+            external: await this.getExternalData(topic),
+            patterns: await this.getRelevantPatterns(topic)
+          }
+          return knowledge
+        },
+
+        getExternalData: async (topic) => {
+          if (topic.includes('crypto')) {
+            return await this.getCryptoData(topic)
+          } else if (topic.includes('tech')) {
+            return await this.getTechData(topic)
+          }
+          return await this.getGeneralData(topic)
+        }
+      },
+
+      processor: {
+        processKnowledge: async (knowledge, context) => {
+          const processed = {
+            facts: this.extractFacts(knowledge),
+            insights: this.generateInsights(knowledge, context),
+            recommendations: this.generateRecommendations(knowledge, context)
+          }
+          return processed
+        }
+      }
+    }
+
+    // Response Generation System
+    this.response = {
+      generator: {
+        createResponse: async (understanding, knowledge, context) => {
+          // Build response structure
+          const structure = this.planResponseStructure(understanding)
+          
+          // Generate content
+          const content = await this.generateContent(structure, knowledge)
+          
+          // Add personality
+          const personalized = this.addPersonality(content, context)
+          
+          // Format and finalize
+          return this.finalizeResponse(personalized)
+        }
+      },
+
+      personality: {
+        addStyle: (text, context) => {
+          // Add casual language markers
+          text = this.addCasualMarkers(text)
+          
+          // Add appropriate emoji
+          text = this.addEmoji(text, context)
+          
+          // Add personality traits
+          return this.addPersonalityTraits(text, context)
+        }
+      }
+    }
+  }
+
+  async processMessage(text, userId, chatId) {
+    try {
+      // Get conversation memory
+      const memory = await this.memory.shortTerm.retrieve(userId, chatId)
+      
+      // Generate understanding
+      const understanding = await this.language.understanding
+        .generateUnderstanding(text, memory)
+      
+      // Get relevant knowledge
+      const knowledge = await this.knowledge.retriever
+        .getKnowledge(understanding.topics)
+      
+      // Process knowledge
+      const processed = await this.knowledge.processor
+        .processKnowledge(knowledge, understanding)
+      
+      // Generate response
+      const response = await this.response.generator
+        .createResponse(understanding, processed, memory)
+      
+      // Update memory
+      await this.memory.shortTerm.update(userId, chatId, {
+        understanding,
+        response,
+        timestamp: Date.now()
+      })
+      
+      // Learn from interaction
+      await this.memory.longTerm.learn({
+        input: text,
+        understanding,
+        response,
+        effectiveness: 1
+      })
+      
+      return response
+    } catch (err) {
+      console.error('Processing error:', err)
+      return this.handleError()
+    }
+  }
+
+  async getCryptoData(topic) {
+    try {
+      const response = await axios.get(
+        'https://api.coingecko.com/api/v3/simple/price',
+        {
+          params: {
+            ids: 'bitcoin,ethereum',
+            vs_currencies: 'usd',
+            include_24hr_vol: true,
+            include_24hr_change: true
+          }
+        }
+      )
+      return {
+        data: response.data,
+        source: 'CoinGecko',
+        timestamp: Date.now()
+      }
+    } catch (err) {
+      console.error('Crypto data fetch error:', err)
       return null
     }
   }
 
-  generateCasualResponse() {
+  // Database operations
+  async storeShortTermMemory(userId, chatId, memory) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `INSERT OR REPLACE INTO cognitive_memory 
+        (chat_id, user_id, conversation_state, emotional_context, 
+         topic_history, interaction_pattern, last_interaction)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          chatId,
+          userId,
+          JSON.stringify(memory.state),
+          JSON.stringify(memory.emotions),
+          JSON.stringify(memory.topics),
+          JSON.stringify(memory.patterns)
+        ],
+        (err) => {
+          if (err) reject(err)
+          else resolve()
+        }
+      )
+    })
+  }
+
+  handleError() {
     const responses = [
-      '🤔 Hmm... Jadi penasaran nih... Bisa dijelasin lebih detail?',
-      '🔥 Wah topik keren! Tapi gue lebih jago bahas crypto deh~',
-      '😴 Waduh, bahas ini jadi ngantuk... Ada yang mau nanya crypto?',
-      '💡 Btw, lu udah cek harga Bitcoin hari ini? Seru loh pergerakannya!'
+      'Waduh, otak gue ngelag nih. Coba lagi dong!',
+      'Brain.exe stopped working 😅 My bad, bisa diulang?',
+      'Loading... error! Sori, coba sekali lagi ya?'
     ]
     return responses[Math.floor(Math.random() * responses.length)]
   }
-
-  createResponse(text, mood) {
-    const emojis = {
-      crypto: ['💰', '🔗', '📈'],
-      group: ['🗣️', '👥', '💬'],
-      web: ['🌐', '📚', '🔍'],
-      casual: ['😎', '🤙', '💡'],
-      confused: ['⚠️', '❓', '🤔']
-    }
-    return {
-      text: `${emojis[mood][0]} ${text}`,
-      source: null
-    }
-  }
 }
 
-// ========== INIT BRAIN ==========
-const AI = new Brain()
+// Initialize bot and AI
+const bot = new Telegraf(BOT_TOKEN)
+const ai = new SophisticatedAI()
 
-// ========== HANDLER PESAN ==========
-// Simpan pesan grup
-bot.on('message', (ctx) => {
-  if(ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') {
-    db.run(
-      'INSERT INTO group_data (chat_id, message) VALUES (?, ?)',
-      [ctx.chat.id, ctx.message.text]
+// Message handler
+bot.on('message', async (ctx) => {
+  try {
+    if (!ctx.message.text) return
+
+    const response = await ai.processMessage(
+      ctx.message.text,
+      ctx.from.id,
+      ctx.chat.id
     )
+
+    await ctx.reply(response)
+  } catch (err) {
+    console.error('Message handler error:', err)
+    ctx.reply('Oops, something went wrong!')
   }
 })
 
-// Handle pesan private
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id
-  const text = ctx.message.text
+// Launch bot
+bot.launch()
+  .then(() => {
+    console.log('🚀 Bot is running!')
+    console.log('🧠 Sophisticated AI initialized')
+  })
+  .catch(err => {
+    console.error('Launch error:', err)
+    process.exit(1)
+  })
 
-  // Update session
-  db.run(
-    'INSERT OR REPLACE INTO sessions (user_id, history, last_active) VALUES (?, ?, ?)',
-    [userId, text, new Date().toISOString()]
-  )
-
-  // Generate response
-  const response = await AI.processInput(text, userId)
-  
-  // Kirim pesan
-  ctx.replyWithMarkdown(
-    response.text,
-    Markup.inlineKeyboard([
-      Markup.button.callback('💬 Feedback', 'feedback')
-    ])
-  )
-})
-
-// ========== FITUR TAMBAHAN ==========
-// Handler feedback
-bot.action('feedback', (ctx) => {
-  ctx.answerCbQuery()
-  ctx.reply('📩 Makasih masukannya! Udah gue terusin ke bos besar nih~')
-  
-  ctx.telegram.sendMessage(
-    ADMIN_ID,
-    `📢 Feedback dari @${ctx.from.username}:\n"${ctx.message.text}"`
-  )
-})
-
-// Handler info bot
-bot.hears(/bot|pembuat|creator/i, (ctx) => {
-  ctx.replyWithMarkdown(
-    `🤖 *ID Card*\n` +
-    `Nama: CryptoMasterBot\n` +
-    `Pencipta: ${CREATOR}\n` +
-    `Spesialisasi: Crypto & Ngobrol Santai\n` +
-    `Motto: "Ga perlu serius mulu, crypto bisa fun kok!"`
-  )
-})
-
-// Command reset
-bot.command('reset', (ctx) => {
-  db.run('DELETE FROM sessions WHERE user_id = ?', [ctx.from.id])
-  ctx.replyWithMarkdown(
-    '🔄 *Sessi direset!* Yuk mulai obrolan baru~',
-    Markup.removeKeyboard()
-  )
-})
-
-// ========== START BOT ==========
-bot.launch().then(() => {
-  console.log('🤖 Bot berjalan dengan kecerdasan buatan!')
-}).catch(err => {
-  console.error('❌ Gagal memulai:', err)
-})
+// Enable graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'))
+process.once('SIGTERM', () => bot.stop('SIGTERM'))
