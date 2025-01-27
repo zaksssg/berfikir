@@ -3,15 +3,17 @@ import sys
 import time
 import json
 import asyncio
+import re
 from datetime import datetime, timedelta
-from telethon import TelegramClient, events, sync, functions
+from telethon import TelegramClient, events, sync, functions, types
 from telethon.errors import (
     FloodWaitError,
     PhoneCodeInvalidError,
     SessionPasswordNeededError,
     PhoneNumberBannedError,
     PhoneNumberInvalidError,
-    ChatWriteForbiddenError
+    ChatWriteForbiddenError,
+    MessageIdInvalidError
 )
 from telethon.tl.functions.channels import GetParticipantsRequest
 from telethon.tl.types import ChannelParticipantsSearch
@@ -23,26 +25,28 @@ from rich.progress import (
     BarColumn,
     TextColumn,
     TimeRemainingColumn,
+    MofNCompleteColumn
 )
+from rich.live import Live
 from rich import print as rprint
 from rich.table import Table
 from rich.prompt import Confirm, Prompt
+from rich.status import Status
+from rich.layout import Layout
 
-# Initialize Rich console
 console = Console()
 
 # Configuration
 API_ID = "25647083"
 API_HASH = "dea41d5522659ab9917efec89ac21d21"
-ADMIN_ID = "5988451717"  # ID Telegram untuk notifikasi
+ADMIN_ID = "5988451717"
 
-# Application Details
+# App Details
 APP_NAME = "Programmed Share hiyaok"
 DEVICE_MODEL = "Programmed Share"
 SYSTEM_VERSION = "Share System V1"
 
-BANNER = """
-[bold magenta]
+BANNER = """[bold magenta]
 ╔═══════════════════════════════════════════════════════════════════╗
 ║ ██╗  ██╗██╗██╗   ██╗ █████╗  ██████╗ ██╗  ██╗                   ║
 ║ ██║  ██║██║╚██╗ ██╔╝██╔══██╗██╔═══██╗██║ ██╔╝                   ║
@@ -53,135 +57,93 @@ BANNER = """
 ║                                                                   ║
 ║                TELEGRAM AUTO SHARE BY @HIYAOK                     ║
 ║                         Version 1.0                               ║
-╚═══════════════════════════════════════════════════════════════════╝
-[/bold magenta]
+╚═══════════════════════════════════════════════════════════════════╝[/bold magenta]
 """
+
+def loading_animation(text, duration=1):
+    """Show loading animation"""
+    with console.status(f"[cyan]{text}", spinner="dots") as status:
+        time.sleep(duration)
 
 class TelegramAutomation:
     def __init__(self):
-        self.clients = {}  # {phone: {"client": client, "groups": []}}
+        self.clients = {}
         self.console = Console()
         self.show_banner()
+        self.active_tasks = {}
 
     def show_banner(self):
-        """Show program banner"""
+        """Show animated banner"""
         os.system('cls' if os.name == 'nt' else 'clear')
+        loading_animation("Initializing Super Tool")
         self.console.print(BANNER)
 
-    async def send_admin_notification(self, message, excluded_phone=None):
-        """Send notification to admin"""
-        for phone, client_data in self.clients.items():
-            if phone == excluded_phone:
-                continue
-            try:
-                await client_data["client"].send_message(ADMIN_ID, message)
-                return True
-            except:
-                continue
-        return False
-
-    async def connect_single_account(self, phone):
-        """Connect single Telegram account"""
+    async def connect_account(self):
+        """Mass connect accounts from file"""
+        self.console.print("[bold cyan]📱 Mass Account Connection[/bold cyan]")
+        
+        file_path = Prompt.ask("[bold yellow]Enter path to accounts file (phone numbers)")
         try:
-            self.console.print(f"[cyan]Connecting {phone}...")
+            with open(file_path, 'r') as f:
+                phones = [line.strip() if line.strip().startswith('+') else '+' + line.strip() 
+                         for line in f if line.strip()]
+            
+            loading_animation(f"Loading {len(phones)} accounts")
 
-            client = TelegramClient(
-                f"session_{phone}",
-                API_ID,
-                API_HASH,
-                device_model=DEVICE_MODEL,
-                system_version=SYSTEM_VERSION,
-                app_version=APP_NAME
-            )
-
-            await client.connect()
-
-            if not await client.is_user_authorized():
-                self.console.print(f"[yellow]Sending code to {phone}...")
-                await client.send_code_request(phone)
-                
-                while True:
-                    try:
-                        code = Prompt.ask("[bold yellow]Enter the code received")
-                        await client.sign_in(phone, code)
-                        break
-                    except PhoneCodeInvalidError:
-                        self.console.print("[bold red]Invalid code! Try again.[/bold red]")
-
-                # Check for 2FA
+            async def connect_single(phone):
                 try:
-                    await client.get_me()
-                except SessionPasswordNeededError:
-                    while True:
+                    self.console.print(f"[cyan]Connecting {phone}...")
+                    
+                    client = TelegramClient(
+                        f"session_{phone}",
+                        API_ID,
+                        API_HASH,
+                        device_model=DEVICE_MODEL,
+                        system_version=SYSTEM_VERSION,
+                        app_version=APP_NAME
+                    )
+                    
+                    await client.connect()
+                    
+                    if not await client.is_user_authorized():
+                        await client.send_code_request(phone)
+                        code = Prompt.ask(f"[bold yellow]Enter code for {phone}")
                         try:
-                            password = Prompt.ask("[bold yellow]Enter 2FA password", password=True)
+                            await client.sign_in(phone, code)
+                        except SessionPasswordNeededError:
+                            password = Prompt.ask(f"[bold yellow]Enter 2FA password for {phone}", password=True)
                             await client.sign_in(password=password)
-                            break
-                        except Exception as e:
-                            if "password is invalid" in str(e).lower():
-                                self.console.print("[bold red]Invalid 2FA password! Try again.[/bold red]")
-                            else:
-                                raise e
+                    
+                    self.clients[phone] = {
+                        "client": client,
+                        "groups": [],
+                        "status": "active"
+                    }
+                    self.console.print(f"[green]✓ {phone} connected")
+                    return True
+                except Exception as e:
+                    self.console.print(f"[red]✗ {phone} failed: {str(e)}")
+                    return False
 
-            self.clients[phone] = {
-                "client": client,
-                "groups": []
-            }
-            self.console.print(f"[green]✓ Successfully connected {phone}")
-            return True
+            # Connect all accounts simultaneously
+            tasks = [connect_single(phone) for phone in phones]
+            results = await asyncio.gather(*tasks)
+            
+            connected = sum(1 for r in results if r)
+            self.console.print(f"[bold green]✓ Connected {connected}/{len(phones)} accounts")
 
         except Exception as e:
-            self.console.print(f"[bold red]Error connecting {phone}: {str(e)}[/bold red]")
-            return False
-
-    async def connect_account(self):
-        """Feature 1: Connect account"""
-        self.console.print("[bold cyan]📱 Account Connection[/bold cyan]")
-        
-        phone = Prompt.ask("[bold yellow]Enter phone number (with country code)")
-        if not phone.startswith('+'):
-            phone = '+' + phone
-            
-        await self.connect_single_account(phone)
-
-    async def delete_all_sessions(self):
-        """Feature 2: Delete all sessions"""
-        if not self.clients:
-            self.console.print("[bold red]No active sessions![/bold red]")
-            return
-
-        table = Table(title="Active Sessions")
-        table.add_column("Phone Number", style="cyan")
-        table.add_column("Status", style="green")
-
-        for phone in self.clients:
-            table.add_row(phone, "Active")
-
-        self.console.print(table)
-
-        if Confirm.ask("[bold yellow]Delete all sessions?"):
-            for phone, client_data in self.clients.items():
-                try:
-                    await client_data["client"].log_out()
-                    session_file = f"session_{phone}.session"
-                    if os.path.exists(session_file):
-                        os.remove(session_file)
-                    self.console.print(f"[green]✓ Deleted session for {phone}")
-                except Exception as e:
-                    self.console.print(f"[bold red]Error deleting {phone}: {str(e)}[/bold red]")
-
-            self.clients = {}
-            self.console.print("[bold green]✓ All sessions deleted![/bold green]")
+            self.console.print(f"[bold red]Error: {str(e)}[/bold red]")
 
     async def list_groups(self):
-        """Feature 3: List all groups"""
+        """List all groups for all accounts"""
         if not self.clients:
             self.console.print("[bold red]No active accounts![/bold red]")
             return
 
-        for phone, client_data in self.clients.items():
-            self.console.print(f"\n[bold cyan]Groups for {phone}:[/bold cyan]")
-            
+        loading_animation("Loading groups")
+
+        async def fetch_groups(phone, client_data):
             try:
                 client = client_data["client"]
                 groups = []
@@ -192,112 +154,182 @@ class TelegramAutomation:
                             "id": dialog.id,
                             "title": dialog.title
                         })
-                        self.console.print(f"[green]• {dialog.title}")
-
+                
                 client_data["groups"] = groups
-                self.console.print(f"[bold green]Total groups: {len(groups)}")
-
+                return phone, len(groups), groups[:3]  # Return preview of 3 groups
             except Exception as e:
-                self.console.print(f"[bold red]Error listing groups: {str(e)}[/bold red]")
+                return phone, 0, []
+
+        tasks = [fetch_groups(phone, data) for phone, data in self.clients.items()]
+        results = await asyncio.gather(*tasks)
+
+        # Display results in table
+        table = Table(title="[bold cyan]Groups Summary[/bold cyan]")
+        table.add_column("Phone", style="cyan")
+        table.add_column("Total Groups", style="green")
+        table.add_column("Preview", style="yellow")
+
+        total_groups = 0
+        for phone, count, preview in results:
+            preview_text = ", ".join(g["title"] for g in preview) + "..." if preview else "None"
+            table.add_row(phone, str(count), preview_text)
+            total_groups += count
+
+        self.console.print(table)
+        self.console.print(f"[bold green]Total groups across all accounts: {total_groups}")
 
     async def forward_messages(self):
-        """Feature 4: Forward messages"""
+        """Mass forward messages from all accounts simultaneously"""
         if not self.clients:
             self.console.print("[bold red]No active accounts![/bold red]")
             return
 
-        message = Prompt.ask("[bold yellow]Enter message to forward")
-        delay = float(Prompt.ask("[bold yellow]Enter delay between forwards (seconds)", default="30"))
+        message_link = Prompt.ask("[bold yellow]Enter message link to forward")
+        
+        # Validate message using first available client
+        test_client = list(self.clients.values())[0]["client"]
+        
+        try:
+            match = re.match(r'https?://t\.me/([^/]+)/(\d+)', message_link)
+            if not match:
+                self.console.print("[bold red]Invalid message link format![/bold red]")
+                return
+                
+            channel_username, message_id = match.groups()
+            message_id = int(message_id)
+            
+            loading_animation("Validating message")
+            
+            message = await test_client.get_messages(channel_username, ids=message_id)
+            if not message:
+                self.console.print("[bold red]Message not found![/bold red]")
+                return
 
-        self.console.print("\n[bold cyan]Message Preview:[/bold cyan]")
-        self.console.print(Panel(message, style="green"))
+            # Show preview
+            self.console.print("\n[bold cyan]Message Preview:[/bold cyan]")
+            preview = Panel(
+                message.message[:500] + "..." if len(message.message) > 500 else message.message,
+                title="Preview",
+                style="green"
+            )
+            self.console.print(preview)
 
-        if not Confirm.ask("[bold yellow]Start forwarding?"):
-            return
+            # Get delay
+            while True:
+                try:
+                    delay = float(Prompt.ask("[bold yellow]Enter delay between forwards (min 1 second)"))
+                    if delay < 1:
+                        self.console.print("[bold red]Delay must be at least 1 second![/bold red]")
+                        continue
+                    break
+                except ValueError:
+                    self.console.print("[bold red]Please enter a valid number![/bold red]")
 
-        while True:  # Continuous loop
-            for phone, client_data in self.clients.items():
+            if not Confirm.ask("[bold yellow]Start mass forwarding?"):
+                return
+
+            async def process_account(phone, client_data):
                 client = client_data["client"]
                 groups = client_data["groups"]
+                stats = {"success": 0, "failed": 0}
                 
-                success_count = 0
-                fail_count = 0
-
-                self.console.print(f"\n[bold cyan]Forwarding with {phone}...[/bold cyan]")
-
                 for group in groups:
                     try:
-                        self.console.print(f"[cyan]→ Sending to {group['title']}...")
-                        await client.send_message(group["id"], message)
-                        success_count += 1
-                        self.console.print(f"[green]✓ Sent to {group['title']}")
+                        await client.forward_messages(group["id"], message)
+                        stats["success"] += 1
+                        self.console.print(f"[green]✓ {phone} → {group['title']}")
                         await asyncio.sleep(delay)
-
                     except FloodWaitError as e:
-                        wait_time = e.seconds
-                        fail_count += 1
-                        self.console.print(f"[yellow]⚠️ Flood wait: {wait_time}s")
-                        
-                        await self.send_admin_notification(f"""
+                        await client.send_message(ADMIN_ID, f"""
 ⚠️ Flood Wait:
 📱 Account: {phone}
-⏳ Wait time: {wait_time} seconds
-👥 Group: {group['title']}
-""", phone)
-                        
-                        await asyncio.sleep(wait_time)
+⏳ Wait time: {e.seconds} seconds
+""")
+                        stats["failed"] += 1
+                        await asyncio.sleep(e.seconds)
                         break
-
                     except Exception as e:
-                        fail_count += 1
-                        self.console.print(f"[red]✗ Failed: {str(e)}")
-                        
-                        await self.send_admin_notification(f"""
-❌ Forward Failed:
-📱 Account: {phone}
-👥 Group: {group['title']}
-❗ Error: {str(e)}
-""", phone)
-
+                        stats["failed"] += 1
+                        self.console.print(f"[red]✗ {phone} → {group['title']}: {str(e)}")
+                
                 # Send summary
-                summary = f"""
-📊 Forward Summary for {phone}:
-✅ Successful: {success_count}
-❌ Failed: {fail_count}
-📱 Total Groups: {len(groups)}
+                await client.send_message(ADMIN_ID, f"""
+📊 Forward Summary:
+📱 Account: {phone}
+✅ Success: {stats['success']}
+❌ Failed: {stats['failed']}
 ⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-"""
-                await self.send_admin_notification(summary, phone)
+""")
+                return stats
 
-            # Wait before next round
-            self.console.print("\n[bold yellow]Round completed. Starting next round...[/bold yellow]")
-            await asyncio.sleep(delay)
+            # Continuous forwarding loop
+            while True:
+                with Live(auto_refresh=True) as live:
+                    layout = Layout()
+                    layout.split_column(
+                        Layout(name="header", size=3),
+                        Layout(name="body")
+                    )
+                    
+                    live.console.print("[bold cyan]Mass Forward Progress[/bold cyan]")
+                    
+                    # Process all accounts simultaneously
+                    tasks = [process_account(phone, data) for phone, data in self.clients.items()]
+                    results = await asyncio.gather(*tasks)
+                    
+                    # Calculate totals
+                    total_success = sum(r["success"] for r in results)
+                    total_failed = sum(r["failed"] for r in results)
+                    
+                    live.console.print(f"""
+[bold green]Round Complete:
+✅ Total Success: {total_success}
+❌ Total Failed: {total_failed}
+⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}""")
+                    
+                    live.console.print("[yellow]Starting next round...[/yellow]")
+                    await asyncio.sleep(delay)
+
+        except Exception as e:
+            self.console.print(f"[bold red]Error: {str(e)}[/bold red]")
 
 async def main():
     tool = TelegramAutomation()
     
     while True:
         console.print("\n[bold cyan]📌 Main Menu:[/bold cyan]")
-        console.print("1. Connect Account")
-        console.print("2. Delete All Sessions")
-        console.print("3. List Groups")
-        console.print("4. Start Forward")
-        console.print("5. Exit")
+        menu = Panel.fit("""
+[cyan]1.[/cyan] Mass Connect Accounts
+[cyan]2.[/cyan] List All Groups
+[cyan]3.[/cyan] Start Mass Forward
+[cyan]4.[/cyan] Exit
+""", title="Menu Options", border_style="cyan")
+        
+        console.print(menu)
         
         try:
-            choice = Prompt.ask("[bold yellow]Choose option", choices=["1", "2", "3", "4", "5"])
+            choice = Prompt.ask(
+                "[bold yellow]Choose option",
+                choices=["1", "2", "3", "4"],
+                show_choices=False
+            )
+            
+            loading_animation("Processing request")
             
             if choice == "1":
                 await tool.connect_account()
             elif choice == "2":
-                await tool.delete_all_sessions()
-            elif choice == "3":
                 await tool.list_groups()
-            elif choice == "4":
+            elif choice == "3":
                 await tool.forward_messages()
-            elif choice == "5":
+            elif choice == "4":
+                loading_animation("Finalizing")
                 console.print("[bold green]Thanks for using HIYAOK Telegram Automation![/bold green]")
                 break
+
+        except KeyboardInterrupt:
+            console.print("\n[bold yellow]Interrupted by user. Exiting...[/bold yellow]")
+            break
         except Exception as e:
             console.print(f"[bold red]Error: {str(e)}[/bold red]")
             console.print("[yellow]Press Enter to continue...[/yellow]")
