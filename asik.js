@@ -1,6 +1,6 @@
 const { Telegraf } = require('telegraf');
 const natural = require('natural');
-const { NeuralNetwork } = require('brain.js');
+const tf = require('@tensorflow/tfjs-node');
 const math = require('mathjs');
 const fs = require('fs').promises;
 
@@ -14,10 +14,33 @@ const classifier = new natural.BayesClassifier();
  */
 class EnhancedBotBrain {
     constructor() {
-        this.network = new NeuralNetwork({
-            hiddenLayers: [20, 15, 10],
-            activation: 'sigmoid'
+        // Initialize TensorFlow sequential model with optimized layer structure
+        this.model = tf.sequential({
+            layers: [
+                tf.layers.dense({
+                    units: 20,
+                    inputShape: [6], // Adjusted for our input features
+                    activation: 'relu'
+                }),
+                tf.layers.dense({
+                    units: 15,
+                    activation: 'relu'
+                }),
+                tf.layers.dense({
+                    units: 10,
+                    activation: 'sigmoid'
+                })
+            ]
         });
+
+        // Compile model with optimized settings
+        this.model.compile({
+            optimizer: tf.train.adam(0.01),
+            loss: 'meanSquaredError',
+            metrics: ['accuracy']
+        });
+
+        // Initialize memory systems
         this.conversationMemory = new Map();
         this.groupPatterns = new Map();
         this.userProfiles = new Map();
@@ -39,6 +62,56 @@ class EnhancedBotBrain {
                 'Smart decision making'
             ]
         };
+    }
+
+    async trainNetwork(analysis) {
+        try {
+            // Convert analysis data to tensor format
+            const inputData = tf.tensor2d([[
+                analysis.sentiment.score,
+                analysis.sentiment.intensity,
+                analysis.complexity.avgLength,
+                analysis.complexity.uniqueRatio,
+                analysis.topics.length,
+                analysis.informality
+            ]]);
+
+            // Create output tensor (adjust based on your needs)
+            const outputData = tf.tensor2d([[1]]);
+
+            // Train the model
+            await this.model.fit(inputData, outputData, {
+                epochs: 1,
+                batchSize: 1,
+                verbose: 0
+            });
+
+            // Clean up tensors
+            inputData.dispose();
+            outputData.dispose();
+        } catch (error) {
+            console.error('Training error:', error);
+        }
+    }
+
+    async predict(input) {
+        try {
+            // Convert input to tensor
+            const inputTensor = tf.tensor2d([input]);
+            
+            // Make prediction
+            const prediction = await this.model.predict(inputTensor);
+            const result = await prediction.data();
+            
+            // Clean up
+            inputTensor.dispose();
+            prediction.dispose();
+            
+            return result[0];
+        } catch (error) {
+            console.error('Prediction error:', error);
+            return 0.5; // Default fallback value
+        }
     }
 
     async learn(message, context) {
@@ -343,6 +416,31 @@ class EnhancedGroupManager {
         this.warningSystem = new Map();
     }
 
+    async analyzeUser(userId, message) {
+        const profile = this.brain.userProfiles.get(userId) || {};
+        const messageAnalysis = await this.brain.analyzeContent(message.text);
+        
+        // Convert analysis to tensor format for prediction
+        const inputFeatures = [
+            messageAnalysis.sentiment.score,
+            messageAnalysis.sentiment.intensity,
+            messageAnalysis.complexity.avgLength,
+            profile.warningCount || 0,
+            messageAnalysis.toxicity || 0,
+            messageAnalysis.informality || 0
+        ];
+
+        // Get prediction from TensorFlow model
+        const riskScore = await this.brain.predict(inputFeatures);
+        
+        return {
+            toxicity: this.calculateToxicity(messageAnalysis),
+            spamScore: await this.calculateSpamScore(userId),
+            warningCount: this.getWarningCount(userId),
+            overallRisk: riskScore
+        };
+    }
+
     async analyzeAndExecute(ctx) {
         if (!ctx.message.reply_to_message) {
             return ctx.reply("Reply dulu pesannya yang mau gw analisis dong! 🤔");
@@ -465,7 +563,7 @@ class EnhancedGroupManager {
     }
 
     getWarningCount(userId) {
-        return this.warningSystem.get(userId)?.count || 0;
+        return (this.warningSystem.get(userId) && this.warningSystem.get(userId).count) || 0;
     }
 }
 
