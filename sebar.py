@@ -43,20 +43,20 @@ ADMIN_ID = "5988451717"
 
 # App Details
 APP_NAME = "Programmed Share hiyaok"
-DEVICE_MODEL = "Programmed Share"
+DEVICE_MODEL = "Programmed hiyaok"
 SYSTEM_VERSION = "Share System V1"
 
 BANNER = """[bold magenta]
 ╔═══════════════════════════════════════════════════════════════════╗
-║ ██╗  ██╗██╗██╗   ██╗ █████╗  ██████╗ ██╗  ██╗                   ║
-║ ██║  ██║██║╚██╗ ██╔╝██╔══██╗██╔═══██╗██║ ██╔╝                   ║
-║ ███████║██║ ╚████╔╝ ███████║██║   ██║█████╔╝                    ║
-║ ██╔══██║██║  ╚██╔╝  ██╔══██║██║   ██║██╔═██╗                    ║
-║ ██║  ██║██║   ██║   ██║  ██║╚██████╔╝██║  ██╗                   ║
-║ ╚═╝  ╚═╝╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝                   ║
-║                                                                   ║
-║                TELEGRAM AUTO SHARE BY @HIYAOK                     ║
-║                         Version 1.0                               ║
+║ ██╗  ██╗██╗██╗   ██╗ █████╗  ██████╗ ██╗  ██╗                           ║
+║ ██║  ██║██║╚██╗ ██╔╝██╔══██╗██╔═══██╗██║ ██╔╝                         ║
+║ ███████║██║ ╚████╔╝ ███████║██║   ██║█████╔╝                         ║
+║ ██╔══██║██║  ╚██╔╝  ██╔══██║██║   ██║██╔═██╗                        ║
+║ ██║  ██║██║   ██║   ██║  ██║╚██████╔╝██║  ██╗                         ║
+║ ╚═╝  ╚═╝╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝                           ║
+║                                                                               ║
+║                TELEGRAM AUTO SHARE BY @HIYAOK                               ║
+║                         Version V1                                           ║
 ╚═══════════════════════════════════════════════════════════════════╝[/bold magenta]
 """
 
@@ -79,21 +79,45 @@ class TelegramAutomation:
         self.console.print(BANNER)
 
     async def connect_account(self):
-        """Mass connect accounts from file"""
+        """Feature 1: Connect multiple Telegram accounts"""
         self.console.print("[bold cyan]📱 Mass Account Connection[/bold cyan]")
+        self.console.print("\n1. Input manual")
+        self.console.print("2. Import from file")
         
-        file_path = Prompt.ask("[bold yellow]Enter path to accounts file (phone numbers)")
-        try:
-            with open(file_path, 'r') as f:
-                phones = [line.strip() if line.strip().startswith('+') else '+' + line.strip() 
-                         for line in f if line.strip()]
-            
-            loading_animation(f"Loading {len(phones)} accounts")
+        choice = Prompt.ask("[bold yellow]Choose input method", choices=["1", "2"])
+        
+        phone_numbers = []
+        if choice == "1":
+            while True:
+                phone = Prompt.ask("[bold yellow]Enter phone number (or 'done' to finish)")
+                if phone.lower() == 'done':
+                    break
+                phone_numbers.append(phone)
+        else:
+            file_path = Prompt.ask("[bold yellow]Enter path to accounts file")
+            try:
+                with open(file_path, 'r') as f:
+                    phone_numbers = [line.strip() for line in f if line.strip()]
+                self.console.print(f"[green]✅ Loaded {len(phone_numbers)} accounts from file[/green]")
+            except Exception as e:
+                self.console.print(f"[red]Error loading file: {str(e)}[/red]")
+                return
 
-            async def connect_single(phone):
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            tasks = {phone: progress.add_task(f"[cyan]Connecting {phone}...", total=100) 
+                    for phone in phone_numbers}
+
+            for phone in phone_numbers:
+                if phone in self.clients:
+                    progress.update(tasks[phone], description=f"[yellow]{phone} already connected")
+                    continue
+
                 try:
-                    self.console.print(f"[cyan]Connecting {phone}...")
-                    
                     client = TelegramClient(
                         f"session_{phone}",
                         API_ID,
@@ -102,38 +126,68 @@ class TelegramAutomation:
                         system_version=SYSTEM_VERSION,
                         app_version=APP_NAME
                     )
+                    progress.update(tasks[phone], advance=30)
                     
                     await client.connect()
-                    
+                    progress.update(tasks[phone], advance=30)
+
                     if not await client.is_user_authorized():
                         await client.send_code_request(phone)
+                        progress.update(tasks[phone], description=f"[yellow]Waiting for code: {phone}")
+                        
                         code = Prompt.ask(f"[bold yellow]Enter code for {phone}")
                         try:
                             await client.sign_in(phone, code)
                         except SessionPasswordNeededError:
-                            password = Prompt.ask(f"[bold yellow]Enter 2FA password for {phone}", password=True)
+                            password = Prompt.ask(f"[bold yellow]2FA password for {phone}", password=True)
                             await client.sign_in(password=password)
-                    
+
                     self.clients[phone] = {
                         "client": client,
-                        "groups": [],
-                        "status": "active"
+                        "groups": []
                     }
-                    self.console.print(f"[green]✓ {phone} connected")
-                    return True
+                    progress.update(tasks[phone], completed=100, description=f"[green]✅ {phone} connected")
+
                 except Exception as e:
-                    self.console.print(f"[red]✗ {phone} failed: {str(e)}")
-                    return False
+                    progress.update(tasks[phone], description=f"[red]❌ {phone} failed: {str(e)}")
 
-            # Connect all accounts simultaneously
-            tasks = [connect_single(phone) for phone in phones]
-            results = await asyncio.gather(*tasks)
-            
-            connected = sum(1 for r in results if r)
-            self.console.print(f"[bold green]✓ Connected {connected}/{len(phones)} accounts")
+    async def delete_all_sessions(self):
+        """Feature 2: Delete all active sessions"""
+        if not self.clients:
+            self.console.print("[bold red]No active sessions found![/bold red]")
+            return
 
-        except Exception as e:
-            self.console.print(f"[bold red]Error: {str(e)}[/bold red]")
+        # Display active sessions
+        table = Table(title="[bold cyan]Active Sessions[/bold cyan]")
+        table.add_column("Phone Number", style="cyan")
+        table.add_column("Status", style="green")
+
+        for phone in self.clients:
+            table.add_row(phone, "Active ✅")
+
+        self.console.print(table)
+
+        if Confirm.ask("[bold yellow]Delete all sessions?"):
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+            ) as progress:
+                task = progress.add_task("[red]Deleting sessions...", total=len(self.clients))
+                
+                for phone, client_data in self.clients.items():
+                    try:
+                        await client_data["client"].log_out()
+                        session_file = f"session_{phone}.session"
+                        if os.path.exists(session_file):
+                            os.remove(session_file)
+                        progress.advance(task)
+                        
+                    except Exception as e:
+                        self.console.print(f"[bold red]Error deleting session {phone}: {str(e)}[/bold red]")
+
+            self.clients = {}
+            self.console.print("[bold green]✅ All sessions deleted successfully![/bold green]")
 
     async def list_groups(self):
         """List all groups for all accounts"""
@@ -323,6 +377,8 @@ async def main():
             elif choice == "3":
                 await tool.forward_messages()
             elif choice == "4":
+                 await tool.delete_all_sessions ()
+            elif choice == "5":
                 loading_animation("Finalizing")
                 console.print("[bold green]Thanks for using HIYAOK Telegram Automation![/bold green]")
                 break
